@@ -372,7 +372,7 @@ async function initDB() {
   const theme = await Settings.get('theme');
   if (theme === null) await Settings.set('theme', 'dark');
   const startDate = await Settings.get('plan_start_date');
-  if (startDate === null) await Settings.set('plan_start_date', '2026-05-25');
+  if (startDate === null) await Settings.set('plan_start_date', '2026-05-18');
 }
 
 // ─── Exports ─────────────────────────────────────────────────────────────────

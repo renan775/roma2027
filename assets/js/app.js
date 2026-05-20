@@ -247,7 +247,7 @@ Router.register('home', async () => {
       <div style="flex:1">
         <h1 class="display" style="font-size:24px;line-height:1">Roma 2027</h1>
         <div style="font-size:12px;color:var(--text-muted);margin-top:2px">
-          ${weekNum > 0 ? `${formatDate(getWeekStart(weekNum))} · Semana ${weekNum}` : 'Plano inicia em 25/05/2026'}
+          ${weekNum > 0 ? `${formatDate(getWeekStart(weekNum))} · Semana ${weekNum}` : 'Plano inicia em 18/05/2026'}
         </div>
       </div>
       <div style="font-family:var(--font-mono);font-size:13px;color:var(--accent);font-weight:600">sub-4h</div>
@@ -298,7 +298,7 @@ Router.register('home', async () => {
           <span style="font-size:16px;color:var(--text-muted)">dias</span>
         </div>
         <div style="font-size:13px;color:var(--text-muted);margin-top:4px">
-          25/05/2026 · Fundação Anatômica (Semana 1)
+          18/05/2026 · Fundação Anatômica (Semana 1)
         </div>
         <div class="alert alert-accent" style="margin-top:12px;font-size:12px">
           <span class="alert-icon">💡</span>

@@ -23,7 +23,7 @@ const RACE = {
   targetHR: { min: 165, max: 172 },
 };
 
-const PLAN_START = '2026-05-25'; // Monday
+const PLAN_START = '2026-05-18'; // Monday — semana 1 começa aqui
 
 // ─── HR ZONES ─────────────────────────────────────────────────────────────────
 const HR_ZONES = [
