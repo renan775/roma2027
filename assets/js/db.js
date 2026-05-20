@@ -354,6 +354,176 @@ const Backup = {
   },
 };
 
+// ─── GitHub Gist Sync ─────────────────────────────────────────────────────────
+// Free cross-device sync: stores the full backup JSON in a secret GitHub Gist.
+// Each device needs the PAT + Gist ID configured once in Settings.
+
+const GIST_FILENAME = 'roma2027-data.json';
+const GH_API        = 'https://api.github.com';
+
+const GitHubSync = {
+  async getConfig() {
+    const [token, gistId, lastSync] = await Promise.all([
+      Settings.get('gh_token',    null),
+      Settings.get('gh_gist_id',  null),
+      Settings.get('gh_last_sync', null),
+    ]);
+    return { token, gistId, lastSync };
+  },
+
+  isConfigured(cfg) {
+    return !!(cfg.token && cfg.gistId);
+  },
+
+  _headers(token) {
+    return {
+      'Authorization':       `Bearer ${token}`,
+      'Content-Type':        'application/json',
+      'X-GitHub-Api-Version': '2022-11-28',
+    };
+  },
+
+  /** Create a new secret Gist and return its id. */
+  async createGist(token) {
+    const res = await fetch(`${GH_API}/gists`, {
+      method:  'POST',
+      headers: this._headers(token),
+      body: JSON.stringify({
+        description: 'Roma 2027 — workout sync',
+        public: false,
+        files: {
+          [GIST_FILENAME]: {
+            content: JSON.stringify({
+              version: 1, appName: 'Roma2027',
+              data: { workouts: [], exercises: [], settings: {} },
+            }, null, 2),
+          },
+        },
+      }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.message || `GitHub ${res.status}`);
+    }
+    const gist = await res.json();
+    return gist.id;
+  },
+
+  /** Upload local data → Gist (overwrite). */
+  async push() {
+    const cfg = await this.getConfig();
+    if (!this.isConfigured(cfg)) throw new Error('Sync não configurado');
+
+    const backup = await Backup.export();
+    const res = await fetch(`${GH_API}/gists/${cfg.gistId}`, {
+      method:  'PATCH',
+      headers: this._headers(cfg.token),
+      body: JSON.stringify({
+        files: { [GIST_FILENAME]: { content: JSON.stringify(backup, null, 2) } },
+      }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.message || `GitHub ${res.status}`);
+    }
+    await Settings.set('gh_last_sync', new Date().toISOString());
+  },
+
+  /** Download Gist → restore local data (merges settings carefully). */
+  async pull() {
+    const cfg = await this.getConfig();
+    if (!this.isConfigured(cfg)) throw new Error('Sync não configurado');
+
+    const res = await fetch(`${GH_API}/gists/${cfg.gistId}`, {
+      headers: this._headers(cfg.token),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.message || `GitHub ${res.status}`);
+    }
+    const gist    = await res.json();
+    const content = gist.files[GIST_FILENAME]?.content;
+    if (!content) throw new Error(`Arquivo "${GIST_FILENAME}" não encontrado no Gist`);
+
+    // Restore — Backup.import() clears ALL settings, so save sync keys first
+    await Backup.import(content);
+
+    // Re-write sync config (wiped by import)
+    await Promise.all([
+      Settings.set('gh_token',    cfg.token),
+      Settings.set('gh_gist_id',  cfg.gistId),
+      Settings.set('gh_last_sync', new Date().toISOString()),
+    ]);
+  },
+
+  /** Push after workout — silent on failure. */
+  async autoSync() {
+    try {
+      const cfg = await this.getConfig();
+      if (!this.isConfigured(cfg)) return;
+      await this.push();
+    } catch (e) {
+      console.warn('Auto-sync (push) falhou:', e.message);
+    }
+  },
+
+  /**
+   * Called on every app open. Compares local vs remote workout count:
+   *   remote > local  → pull  (returns 'pulled')
+   *   local  > remote → push  (returns 'pushed')
+   *   equal           → noop  (returns 'in_sync')
+   * Returns 'skipped' if not configured, 'error' on failure.
+   */
+  async syncOnOpen() {
+    const cfg = await this.getConfig();
+    if (!this.isConfigured(cfg)) return 'skipped';
+
+    try {
+      // Fetch remote metadata without importing yet
+      const res = await fetch(`${GH_API}/gists/${cfg.gistId}`, {
+        headers: this._headers(cfg.token),
+      });
+      if (!res.ok) return 'error';
+
+      const gist    = await res.json();
+      const content = gist.files[GIST_FILENAME]?.content;
+      if (!content) {
+        // Gist is empty — push local data up
+        await this.push();
+        return 'pushed';
+      }
+
+      let remote;
+      try { remote = JSON.parse(content); } catch { return 'error'; }
+
+      const remoteCount = (remote.data?.workouts || []).length;
+      const localCount  = await WorkoutLogs.count();
+
+      if (remoteCount > localCount) {
+        // Remote is ahead — restore it locally
+        await Backup.import(content);
+        // Re-write sync config (wiped by import)
+        await Promise.all([
+          Settings.set('gh_token',    cfg.token),
+          Settings.set('gh_gist_id',  cfg.gistId),
+          Settings.set('gh_last_sync', new Date().toISOString()),
+        ]);
+        return 'pulled';
+      }
+
+      if (localCount > remoteCount) {
+        await this.push();
+        return 'pushed';
+      }
+
+      return 'in_sync';
+    } catch (e) {
+      console.warn('syncOnOpen falhou:', e.message);
+      return 'error';
+    }
+  },
+};
+
 // ─── Full reset ───────────────────────────────────────────────────────────────
 
 async function resetAll() {
@@ -383,5 +553,6 @@ window.DB = {
   ExerciseLogs,
   Settings,
   Backup,
+  GitHubSync,
   resetAll,
 };

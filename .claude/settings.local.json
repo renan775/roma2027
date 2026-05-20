@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python3 -c \"from PIL import Image, ImageDraw, ImageFont; print\\('Pillow OK'\\)\")",
+      "Bash(python3 -c \"import cairosvg; print\\('cairosvg OK'\\)\")",
+      "Bash(mkdir -p \"/Users/renanqueiroz/Desktop/APP TREINO MARATONA/.claude\")",
+      "mcp__Claude_Preview__preview_start",
+      "Bash(npx --yes serve --version)",
+      "Bash(which node; which python3; ls /usr/local/bin/python* 2>/dev/null; which ruby)"
+    ]
+  }
+}

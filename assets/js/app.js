@@ -605,6 +605,9 @@ Router.register('workout', async () => {
     AppState.workoutActive = false;
     Timer.releaseWakeLock();
 
+    // Auto-sync to GitHub Gist in background (silent on failure)
+    DB.GitHubSync.autoSync();
+
     document.getElementById('screen').innerHTML = `
       <div style="display:flex;flex-direction:column;align-items:center;
                   justify-content:center;min-height:70vh;padding:40px 24px;text-align:center;gap:20px">
@@ -1096,14 +1099,85 @@ Router.register('history', async () => {
 
 // ─── SETTINGS ─────────────────────────────────────────────────────────────────
 Router.register('settings', async () => {
-  const [theme, planStart, totalWorkouts] = await Promise.all([
+  const [theme, planStart, totalWorkouts, syncCfg] = await Promise.all([
     DB.Settings.get('theme', 'dark'),
-    DB.Settings.get('plan_start_date', '2026-05-25'),
+    DB.Settings.get('plan_start_date', '2026-05-18'),
     DB.WorkoutLogs.count(),
+    DB.GitHubSync.getConfig(),
   ]);
 
-  const currentWeek = AppData.getCurrentWeek();
-  const daysToRoma  = AppData.getDaysUntil(AppData.RACE.date);
+  const currentWeek  = AppData.getCurrentWeek();
+  const daysToRoma   = AppData.getDaysUntil(AppData.RACE.date);
+  const syncOk       = DB.GitHubSync.isConfigured(syncCfg);
+  const lastSyncFmt  = syncCfg.lastSync
+    ? new Date(syncCfg.lastSync).toLocaleString('pt-BR', { dateStyle:'short', timeStyle:'short' })
+    : 'Nunca';
+
+  // ── Sync helpers ────────────────────────────────────────────────────────────
+  window.saveGistConfig = async () => {
+    const token  = document.getElementById('gh-token').value.trim();
+    const gistId = document.getElementById('gh-gist-id').value.trim();
+    if (!token) { showToast('Informe o Token do GitHub'); return; }
+    if (!gistId) { showToast('Informe o Gist ID'); return; }
+    await DB.Settings.set('gh_token',   token);
+    await DB.Settings.set('gh_gist_id', gistId);
+    showToast('✅ Configuração salva!');
+    Router.navigate('settings');
+  };
+
+  window.createAndSaveGist = async () => {
+    const token = document.getElementById('gh-token').value.trim();
+    if (!token) { showToast('Informe o Token primeiro'); return; }
+    const btn = document.getElementById('btn-create-gist');
+    btn.disabled = true; btn.textContent = 'Criando…';
+    try {
+      const gistId = await DB.GitHubSync.createGist(token);
+      document.getElementById('gh-gist-id').value = gistId;
+      await DB.Settings.set('gh_token',   token);
+      await DB.Settings.set('gh_gist_id', gistId);
+      showToast('✅ Gist criado! ID salvo automaticamente.');
+      Router.navigate('settings');
+    } catch (e) {
+      showToast('Erro: ' + e.message);
+      btn.disabled = false; btn.textContent = 'Criar Gist agora';
+    }
+  };
+
+  window.syncPush = async () => {
+    const btn = document.getElementById('btn-push');
+    btn.disabled = true; btn.textContent = 'Enviando…';
+    try {
+      await DB.GitHubSync.push();
+      showToast('✅ Dados enviados ao Gist!');
+      Router.navigate('settings');
+    } catch (e) {
+      showToast('Erro ao enviar: ' + e.message);
+      btn.disabled = false; btn.textContent = '↑ Enviar para o Gist';
+    }
+  };
+
+  window.syncPull = async () => {
+    if (!confirm('Isso substituirá os dados locais pelos dados do Gist. Continuar?')) return;
+    const btn = document.getElementById('btn-pull');
+    btn.disabled = true; btn.textContent = 'Baixando…';
+    try {
+      await DB.GitHubSync.pull();
+      showToast('✅ Dados restaurados do Gist!');
+      Router.navigate('home');
+    } catch (e) {
+      showToast('Erro ao baixar: ' + e.message);
+      btn.disabled = false; btn.textContent = '↓ Restaurar do Gist';
+    }
+  };
+
+  window.clearGistConfig = async () => {
+    await Promise.all([
+      DB.Settings.delete('gh_token'),
+      DB.Settings.delete('gh_gist_id'),
+    ]);
+    showToast('Sync desconectado');
+    Router.navigate('settings');
+  };
 
   window.toggleTheme = async () => {
     const current = document.documentElement.getAttribute('data-theme');
@@ -1263,9 +1337,80 @@ Router.register('settings', async () => {
         </div>
       </div>
 
+      <!-- GitHub Gist Sync -->
+      <div style="font-size:11px;text-transform:uppercase;
+                  letter-spacing:.08em;color:var(--text-muted)">
+        Sync entre dispositivos (GitHub Gist)
+      </div>
+
+      ${syncOk ? `
+      <div class="card card-padded" style="border-color:rgba(45,110,78,0.4)">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
+          <div style="width:10px;height:10px;border-radius:50%;background:var(--success)"></div>
+          <div>
+            <div style="font-size:14px;font-weight:600">Sync ativo ✓</div>
+            <div style="font-size:11px;color:var(--text-muted);margin-top:1px">
+              Último sync: ${lastSyncFmt}
+            </div>
+          </div>
+        </div>
+        <div style="display:flex;gap:8px;margin-bottom:10px">
+          <button id="btn-push" class="btn btn-primary"
+            style="flex:1;min-height:44px;font-size:14px" onclick="syncPush()">
+            ↑ Enviar p/ Gist
+          </button>
+          <button id="btn-pull" class="btn btn-secondary"
+            style="flex:1;min-height:44px;font-size:14px" onclick="syncPull()">
+            ↓ Baixar do Gist
+          </button>
+        </div>
+        <div style="font-size:12px;color:var(--text-muted);margin-bottom:10px">
+          Sync automático ao concluir cada treino.
+        </div>
+        <button class="btn btn-ghost"
+          style="font-size:13px;min-height:36px;color:var(--text-muted)"
+          onclick="clearGistConfig()">Desconectar</button>
+      </div>` : `
+      <div class="card card-padded">
+        <div style="font-size:13px;color:var(--text-muted);margin-bottom:14px;line-height:1.6">
+          Sincronize entre iPhone, iPad e qualquer navegador via um
+          <strong style="color:var(--text)">Gist secreto</strong> no seu GitHub —
+          gratuito, seus dados, seu controle.
+        </div>
+        <div style="display:flex;flex-direction:column;gap:10px">
+          <div>
+            <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">
+              1. GitHub Token
+              <span style="color:var(--text-faint)"> · Fine-grained PAT → permissão: Gists</span>
+            </label>
+            <input id="gh-token" class="input" type="password"
+              placeholder="github_pat_…" value="${syncCfg.token || ''}"
+              autocomplete="off"
+              style="font-family:var(--font-mono);font-size:13px"/>
+          </div>
+          <div>
+            <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">
+              2. Gist ID
+              <span style="color:var(--text-faint)"> · deixe vazio para criar um novo</span>
+            </label>
+            <input id="gh-gist-id" class="input" type="text"
+              placeholder="a1b2c3d4e5f6…" value="${syncCfg.gistId || ''}"
+              autocomplete="off"
+              style="font-family:var(--font-mono);font-size:13px"/>
+          </div>
+          <div style="display:flex;gap:8px">
+            <button id="btn-create-gist" class="btn btn-secondary"
+              style="flex:1;min-height:44px;font-size:13px"
+              onclick="createAndSaveGist()">Criar Gist novo</button>
+            <button class="btn btn-primary"
+              style="flex:1;min-height:44px;font-size:13px"
+              onclick="saveGistConfig()">Salvar</button>
+          </div>
+        </div>
+      </div>`}
+
       <!-- Danger zone -->
-      <div class="card card-padded"
-        style="border-color:rgba(214,61,47,0.3)">
+      <div class="card card-padded" style="border-color:rgba(214,61,47,0.3)">
         <div style="font-size:13px;font-weight:600;color:var(--accent);margin-bottom:10px">
           ⚠️ Zona de perigo
         </div>
@@ -1277,7 +1422,7 @@ Router.register('settings', async () => {
       </div>
 
       <div style="text-align:center;color:var(--text-faint);font-size:12px;padding:4px 0">
-        PWA · offline-first · IndexedDB local
+        PWA · offline-first · IndexedDB + GitHub Gist sync
       </div>
       <div style="height:8px"></div>
     </div>`;
@@ -1319,6 +1464,16 @@ async function boot() {
     await Router.navigate(validRoutes.includes(hash) ? hash : 'home');
 
     registerSW();
+
+    // Auto-sync on open (runs after render so the UI already shows)
+    DB.GitHubSync.syncOnOpen().then(result => {
+      if (result === 'pulled') {
+        showToast('🔄 Dados atualizados do Gist!');
+        // Re-render current screen to reflect pulled data
+        Router.navigate(AppState.currentRoute);
+      }
+      // 'pushed', 'in_sync', 'skipped', 'error' → all silent
+    });
   } catch (err) {
     console.error('Boot failed:', err);
     document.getElementById('screen').innerHTML = `

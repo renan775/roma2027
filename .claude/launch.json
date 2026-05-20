@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "roma2027",
+      "runtimeExecutable": "ruby",
+      "runtimeArgs": ["-run", "-e", "httpd", "/Users/renanqueiroz/Desktop/APP TREINO MARATONA", "-p", "8080"],
+      "port": 8080
+    }
+  ]
+}
