@@ -193,10 +193,10 @@ window.toggleExCard = (index) => {
 // ─── HOME ─────────────────────────────────────────────────────────────────────
 Router.register('home', async () => {
   const { getDaysUntil, getCurrentWeek, getBlockForWeek, RACE, SPECIAL_EVENTS,
-          WEEK_NOTES, getWeekStart, formatDate, getWorkoutTypeForDate } = AppData;
+          WEEK_NOTES, getWeekStart, formatDate, getWorkoutTypeForDate, PLAN_START } = AppData;
 
   const today       = new Date();
-  const weekNum     = getCurrentWeek();
+  const weekNum     = getCurrentWeek(); // 0 = before plan start (25/05/2026)
   const block       = getBlockForWeek(weekNum);
   const weekNote    = WEEK_NOTES[weekNum] || {};
   const daysToRoma  = getDaysUntil(RACE.date);
@@ -206,7 +206,7 @@ Router.register('home', async () => {
 
   const [totalDone, weekLogs, completedMap] = await Promise.all([
     DB.WorkoutLogs.countCompleted(),
-    DB.WorkoutLogs.getByWeek(weekNum),
+    DB.WorkoutLogs.getByWeek(weekNum),   // returns [] when weekNum = 0
     DB.WorkoutLogs.getCompletedByWeekMap(),
   ]);
 
@@ -218,7 +218,7 @@ Router.register('home', async () => {
     else break;
   }
 
-  const blockColor = block ? `var(--block-${block.id})` : 'var(--accent)';
+  const blockColor  = block ? `var(--block-${block.id})` : 'var(--accent)';
   const progressPct = Math.max(2, Math.round((1 - daysToRoma / 660) * 100));
 
   const terraAlert = daysToTerra > 0 && daysToTerra <= 14 ? `
@@ -247,7 +247,7 @@ Router.register('home', async () => {
       <div style="flex:1">
         <h1 class="display" style="font-size:24px;line-height:1">Roma 2027</h1>
         <div style="font-size:12px;color:var(--text-muted);margin-top:2px">
-          ${formatDate(getWeekStart(weekNum))} · Semana ${weekNum}
+          ${weekNum > 0 ? `${formatDate(getWeekStart(weekNum))} · Semana ${weekNum}` : 'Plano inicia em 25/05/2026'}
         </div>
       </div>
       <div style="font-family:var(--font-mono);font-size:13px;color:var(--accent);font-weight:600">sub-4h</div>
@@ -285,7 +285,26 @@ Router.register('home', async () => {
       ${weekNoteHtml}
       ${block3Alert}
 
-      <!-- Semana atual -->
+      <!-- Semana atual / pré-plano -->
+      ${weekNum < 1 ? `
+      <div class="card card-padded" style="border-color:rgba(214,61,47,0.25)">
+        <div style="font-size:11px;text-transform:uppercase;letter-spacing:.08em;
+                    color:var(--text-muted);margin-bottom:6px">Plano começa em</div>
+        <div style="display:flex;align-items:baseline;gap:8px">
+          <span style="font-family:var(--font-mono);font-size:40px;font-weight:600;
+                       color:var(--accent);line-height:1">
+            ${getDaysUntil(PLAN_START)}
+          </span>
+          <span style="font-size:16px;color:var(--text-muted)">dias</span>
+        </div>
+        <div style="font-size:13px;color:var(--text-muted);margin-top:4px">
+          25/05/2026 · Fundação Anatômica (Semana 1)
+        </div>
+        <div class="alert alert-accent" style="margin-top:12px;font-size:12px">
+          <span class="alert-icon">💡</span>
+          <span>Use este tempo para preparar seu material de treino e calibrar as cargas iniciais.</span>
+        </div>
+      </div>` : `
       <div class="card card-padded">
         <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:10px">
           <div>
@@ -315,7 +334,7 @@ Router.register('home', async () => {
             ? '<span style="color:var(--success);font-weight:600">✓ Semana completa!</span>'
             : `${4 - weekDone} restante${4 - weekDone !== 1 ? 's' : ''}`}
         </div>
-      </div>
+      </div>`}
 
       <!-- Treino de hoje -->
       <div class="card card-padded" style="cursor:pointer"
@@ -352,7 +371,7 @@ Router.register('home', async () => {
           <div class="stat-label">Streak (sem.)</div>
         </div>
         <div class="stat-card">
-          <div class="stat-value mono">${weekNum}<span style="font-size:14px;color:var(--text-muted)">/42</span></div>
+          <div class="stat-value mono">${weekNum > 0 ? weekNum : '—'}<span style="font-size:14px;color:var(--text-muted)">${weekNum > 0 ? '/42' : ''}</span></div>
           <div class="stat-label">Semana do plano</div>
         </div>
       </div>

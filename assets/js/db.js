@@ -137,19 +137,25 @@ const WorkoutLogs = {
   },
 
   async getByWeek(weekNumber) {
+    // week 0 = before plan start; no records exist yet
+    if (!weekNumber || weekNumber < 1) return [];
     return getAll(STORES.WORKOUT_LOGS, 'week_number', IDBKeyRange.only(weekNumber));
   },
 
   async getByBlock(blockNumber) {
+    if (!blockNumber) return [];
     return getAll(STORES.WORKOUT_LOGS, 'block_number', IDBKeyRange.only(blockNumber));
   },
 
   async getByType(workoutType) {
+    if (!workoutType) return [];
     return getAll(STORES.WORKOUT_LOGS, 'workout_type', IDBKeyRange.only(workoutType));
   },
 
   async getCompleted() {
-    return getAll(STORES.WORKOUT_LOGS, 'completed', IDBKeyRange.only(1));
+    // Booleans are not valid IDB key types — filter in JS instead
+    const all = await getAll(STORES.WORKOUT_LOGS);
+    return all.filter(r => r.completed);
   },
 
   async update(id, patch) {
@@ -167,13 +173,15 @@ const WorkoutLogs = {
   },
 
   async countCompleted() {
-    return count(STORES.WORKOUT_LOGS, 'completed', IDBKeyRange.only(1));
+    // Boolean index not reliable across browsers — filter in JS
+    const all = await getAll(STORES.WORKOUT_LOGS);
+    return all.filter(r => r.completed).length;
   },
 
   /** Returns a map of weekNumber → list of workout types completed that week */
   async getCompletedByWeekMap() {
-    const all = await getAll(STORES.WORKOUT_LOGS, 'completed', IDBKeyRange.only(1));
-    return all.reduce((acc, row) => {
+    const all = await getAll(STORES.WORKOUT_LOGS);
+    return all.filter(r => r.completed).reduce((acc, row) => {
       if (!acc[row.week_number]) acc[row.week_number] = [];
       acc[row.week_number].push(row.workout_type);
       return acc;
@@ -182,6 +190,7 @@ const WorkoutLogs = {
 
   /** Check if a specific workout type was done this week */
   async isDoneThisWeek(weekNumber, workoutType) {
+    if (!weekNumber || weekNumber < 1) return false;
     const rows = await getAll(STORES.WORKOUT_LOGS, 'week_number', IDBKeyRange.only(weekNumber));
     return rows.some(r => r.workout_type === workoutType && r.completed);
   },

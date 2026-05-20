@@ -1153,7 +1153,7 @@ function getWeekNumber(date) {
   const d = new Date(date);
   d.setHours(0, 0, 0, 0);
   const diffMs = d - start;
-  if (diffMs < 0) return null;
+  if (diffMs < 0) return 0; // before plan start — never null
   return Math.floor(diffMs / (7 * 24 * 60 * 60 * 1000)) + 1;
 }
 
